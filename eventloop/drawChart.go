@@ -54,7 +54,7 @@ func drawLatencies(latencies []float64) {
 	page.Render(io.MultiWriter(f))
 }
 
-func drawLoad(loadOverRate []loadOverFailureRate) {
+func drawLoad(loadByStrategy map[retrierFactoryName][]loadOverFailureRate) {
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: "Load over failure rate"}),
@@ -71,8 +71,9 @@ func drawLoad(loadOverRate []loadOverFailureRate) {
 		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
 	)
 
-	line.SetXAxis(toFailureRateArray(loadOverRate)).
-		AddSeries("Load", generateLineItems(toLoadArray(loadOverRate)))
+	line.SetXAxis(toFailureRateArray(loadByStrategy[fixedRetry])).
+		AddSeries("Load Fixed", generateLineItems(toLoadArray(loadByStrategy[fixedRetry]))).
+		AddSeries("Load CB", generateLineItems(toLoadArray(loadByStrategy[circuitBreaker])))
 
 	page := components.NewPage()
 	page.AddCharts(line)

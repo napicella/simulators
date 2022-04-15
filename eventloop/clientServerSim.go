@@ -15,6 +15,8 @@ type client struct {
 	server             *server
 	requestsPerSeconds int
 	currentAttempt     int
+
+	retrierFactory retrierFactory
 }
 
 func (t *client) genLoad(time float64, payload interface{}) []event {
@@ -45,6 +47,7 @@ func (t *client) call(time float64, payload interface{}) []event {
 	t.stats.attempts++
 
 	c := &call{
+		r:              t.retrierFactory.get(),
 		stats:          t.stats,
 		server:         t.server,
 		currentAttempt: 0,
@@ -61,6 +64,7 @@ type call struct {
 }
 
 func (t *call) callSuccess(time float64, payload interface{}) []event {
+	t.r.recordSuccess()
 	t.stats.reqSuccessCount++
 	req := payload.(*request)
 	t.stats.requestLatency(time - req.time)
@@ -69,8 +73,9 @@ func (t *call) callSuccess(time float64, payload interface{}) []event {
 }
 
 func (t *call) callFailed(time float64, payload interface{}) []event {
-	t.currentAttempt++
-	if t.currentAttempt <= 3 {
+	t.r.recordFailure()
+
+	if t.r.shouldRetry() {
 		t.stats.attempts++
 		return t.server.sendRequest(time, t)
 	}
@@ -123,7 +128,7 @@ func (t *server) processRequest(t_ float64, payload interface{}) []event {
 	req, t.requests = t.requests[0], t.requests[1:]
 	t.isBusy = true
 
-	requestComputeTime := 0.5 //math.Abs(mathrand.NormFloat64()*0.1 + t.requestLatency)
+	requestComputeTime := math.Abs(mathrand.NormFloat64()*0.1 + t.requestLatency)
 	// request is done at requestEndTime
 	requestEndTime := t_ + requestComputeTime
 
@@ -183,7 +188,7 @@ func (t *stats) requestLatency(latency float64) {
 	t.reqLatencies = append(t.reqLatencies, latency)
 }
 
-func runSimulation(s *stats, failureRate float64) {
+func runSimulation(s *stats, failureRate float64, factoryName retrierFactoryName) {
 	server := &server{
 		requests:       nil,
 		isBusy:         false,
@@ -195,9 +200,10 @@ func runSimulation(s *stats, failureRate float64) {
 		requestsPerSeconds: 1,
 		stats:              s,
 		server:             server,
+		retrierFactory:     getFactory(factoryName),
 	}
 	t := 0.0
-	maxTime := 100000.0
+	maxTime := 5000.0
 
 	h := &minheap{
 		{
@@ -230,29 +236,32 @@ func runSimulation(s *stats, failureRate float64) {
 	}
 }
 
-// A different example of a simulation is in:
-// https://github.com/mbrooker/simulator_example/blob/main/ski_sim.py
 func main() {
 	seed := time.Now().Unix()
 	log.Printf("seed: %d", seed)
 	mathrand.Seed(1649093646)
 
-	var loadOverRate []loadOverFailureRate
+	loadByRetryStrategy := make(map[retrierFactoryName][]loadOverFailureRate)
 
-	for _, failureRate := range []float64{
-		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1} {
-		s := &stats{}
-		drain = false
-		runSimulation(s, failureRate)
+	for _, retryStrategyName := range []retrierFactoryName{fixedRetry, circuitBreaker} {
+		var loadOverRate []loadOverFailureRate
 
-		load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
-		loadOverRate = append(loadOverRate, loadOverFailureRate{
-			rate: failureRate,
-			load: load,
-		})
+		for _, failureRate := range []float64{
+			0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1} {
+			s := &stats{}
+			drain = false
+			runSimulation(s, failureRate, retryStrategyName)
+
+			load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
+			loadOverRate = append(loadOverRate, loadOverFailureRate{
+				rate: failureRate,
+				load: load,
+			})
+		}
+		loadByRetryStrategy[retryStrategyName] = loadOverRate
 	}
 
-	drawLoad(loadOverRate)
+	drawLoad(loadByRetryStrategy)
 }
 
 type loadOverFailureRate struct {
