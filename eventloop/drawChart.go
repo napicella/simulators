@@ -72,7 +72,7 @@ func drawLoad(loadOverRate []loadOverFailureRate) {
 	)
 
 	line.SetXAxis(toFailureRateArray(loadOverRate)).
-		AddSeries("Request latency", generateLineItems(toLoadArray(loadOverRate)))
+		AddSeries("Load", generateLineItems(toLoadArray(loadOverRate)))
 
 	page := components.NewPage()
 	page.AddCharts(line)

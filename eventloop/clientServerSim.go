@@ -44,10 +44,23 @@ func (t *client) call(time float64, payload interface{}) []event {
 	t.stats.uniqueCalls++
 	t.stats.attempts++
 
-	return t.server.sendRequest(time, t)
+	c := &call{
+		stats:          t.stats,
+		server:         t.server,
+		currentAttempt: 0,
+	}
+
+	return t.server.sendRequest(time, c)
 }
 
-func (t *client) callSuccess(time float64, payload interface{}) []event {
+type call struct {
+	r              retrier
+	stats          *stats
+	server         *server
+	currentAttempt int
+}
+
+func (t *call) callSuccess(time float64, payload interface{}) []event {
 	t.stats.reqSuccessCount++
 	req := payload.(*request)
 	t.stats.requestLatency(time - req.time)
@@ -55,9 +68,10 @@ func (t *client) callSuccess(time float64, payload interface{}) []event {
 	return nil
 }
 
-func (t *client) callFailed(time float64, payload interface{}) []event {
-	t.stats.attempts++
+func (t *call) callFailed(time float64, payload interface{}) []event {
+	t.currentAttempt++
 	if t.currentAttempt <= 3 {
+		t.stats.attempts++
 		return t.server.sendRequest(time, t)
 	}
 
@@ -79,11 +93,11 @@ type server struct {
 
 type request struct {
 	time   float64
-	client *client
+	client *call
 }
 
 func (t *server) sendRequest(t_ float64, payload interface{}) []event {
-	c := payload.(*client)
+	c := payload.(*call)
 
 	t.requests = append(t.requests, request{time: t_, client: c})
 	if !t.isBusy {
@@ -183,7 +197,7 @@ func runSimulation(s *stats, failureRate float64) {
 		server:             server,
 	}
 	t := 0.0
-	maxTime := 5000.0
+	maxTime := 100000.0
 
 	h := &minheap{
 		{
@@ -226,7 +240,7 @@ func main() {
 	var loadOverRate []loadOverFailureRate
 
 	for _, failureRate := range []float64{
-		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9} {
+		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1} {
 		s := &stats{}
 		drain = false
 		runSimulation(s, failureRate)
