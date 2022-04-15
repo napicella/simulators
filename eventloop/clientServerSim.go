@@ -2,7 +2,7 @@ package main
 
 import (
 	"container/heap"
-	"fmt"
+	"log"
 	"math"
 	mathrand "math/rand"
 	"time"
@@ -14,10 +14,11 @@ type client struct {
 	stats              *stats
 	server             *server
 	requestsPerSeconds int
+	currentAttempt     int
 }
 
 func (t *client) genLoad(time float64, payload interface{}) []event {
-	desiredStdDev := 0.2
+	desiredStdDev := 0.1
 	desiredMean := float64(t.requestsPerSeconds)
 	nextCall := math.Abs(mathrand.NormFloat64()*desiredStdDev + desiredMean)
 
@@ -40,26 +41,29 @@ func (t *client) genLoad(time float64, payload interface{}) []event {
 }
 
 func (t *client) call(time float64, payload interface{}) []event {
-	t.stats.try()
-	return t.server.sendRequest(time, payload)
+	t.stats.uniqueCalls++
+	t.stats.attempts++
+
+	return t.server.sendRequest(time, t)
 }
 
-type stats struct {
-	attempts     int
-	reqLatencies []float64
+func (t *client) callSuccess(time float64, payload interface{}) []event {
+	t.stats.reqSuccessCount++
+	req := payload.(*request)
+	t.stats.requestLatency(time - req.time)
+
+	return nil
 }
 
-func (t *stats) try() {
-	t.attempts = t.attempts + 1
-}
+func (t *client) callFailed(time float64, payload interface{}) []event {
+	t.stats.attempts++
+	if t.currentAttempt <= 3 {
+		return t.server.sendRequest(time, t)
+	}
 
-func (t *stats) getAttempts() int {
-	return t.attempts
-}
+	// request failed after exhausting all attempts
+	t.stats.reqFailedCount++
 
-func (t *stats) requestLatency(t_ float64, payload interface{}) []event {
-	latency := payload.(float64)
-	t.reqLatencies = append(t.reqLatencies, latency)
 	return nil
 }
 
@@ -67,16 +71,21 @@ type server struct {
 	requests []request
 	isBusy   bool
 	stats    *stats
-	// how long it takes for the server to fulfill a request
+	// how long it takes for the server to fulfill a request (average, normally distributed)
 	requestLatency float64
+	// the server failure rate
+	failureRate float64
 }
 
 type request struct {
-	time float64
+	time   float64
+	client *client
 }
 
 func (t *server) sendRequest(t_ float64, payload interface{}) []event {
-	t.requests = append(t.requests, request{time: t_})
+	c := payload.(*client)
+
+	t.requests = append(t.requests, request{time: t_, client: c})
 	if !t.isBusy {
 		return []event{
 			{
@@ -100,18 +109,33 @@ func (t *server) processRequest(t_ float64, payload interface{}) []event {
 	req, t.requests = t.requests[0], t.requests[1:]
 	t.isBusy = true
 
-	requestComputeTime := math.Abs(mathrand.NormFloat64()*0.1 + t.requestLatency)
+	requestComputeTime := 0.5 //math.Abs(mathrand.NormFloat64()*0.1 + t.requestLatency)
+	// request is done at requestEndTime
 	requestEndTime := t_ + requestComputeTime
+
+	// failure rate
+	if mathrand.Float64() < t.failureRate {
+		return []event{
+			{
+				time:        requestEndTime,
+				callbackFun: req.client.callFailed,
+				payload:     &req,
+			},
+			{
+				time:        requestEndTime,
+				callbackFun: t.processRequest,
+				payload:     nil,
+			},
+		}
+	}
 
 	return []event{
 		{
-			// request is done at requestEndTime
 			time:        requestEndTime,
-			callbackFun: t.stats.requestLatency,
-			payload:     requestEndTime - req.time,
+			callbackFun: req.client.callSuccess,
+			payload:     &req,
 		},
 		{
-			// request is done at requestEndTime
 			time:        requestEndTime,
 			callbackFun: t.processRequest,
 			payload:     nil,
@@ -129,16 +153,29 @@ func (t *server) startServer(t_ float64, payload interface{}) []event {
 	}
 }
 
-// A different example of a simulation is in:
-// https://github.com/mbrooker/simulator_example/blob/main/ski_sim.py
-func main() {
-	mathrand.Seed(time.Now().Unix())
-	s := &stats{}
+type stats struct {
+	uniqueCalls     int
+	attempts        int
+	reqLatencies    []float64
+	reqSuccessCount int
+	reqFailedCount  int
+}
+
+func (t *stats) try() {
+	t.attempts = t.attempts + 1
+}
+
+func (t *stats) requestLatency(latency float64) {
+	t.reqLatencies = append(t.reqLatencies, latency)
+}
+
+func runSimulation(s *stats, failureRate float64) {
 	server := &server{
 		requests:       nil,
 		isBusy:         false,
 		stats:          s,
 		requestLatency: 0.5,
+		failureRate:    failureRate,
 	}
 	c := client{
 		requestsPerSeconds: 1,
@@ -146,7 +183,7 @@ func main() {
 		server:             server,
 	}
 	t := 0.0
-	maxTime := 100.0
+	maxTime := 5000.0
 
 	h := &minheap{
 		{
@@ -177,6 +214,34 @@ func main() {
 			drain = true
 		}
 	}
-	fmt.Println(s.reqLatencies)
-	draw(s.reqLatencies)
+}
+
+// A different example of a simulation is in:
+// https://github.com/mbrooker/simulator_example/blob/main/ski_sim.py
+func main() {
+	seed := time.Now().Unix()
+	log.Printf("seed: %d", seed)
+	mathrand.Seed(1649093646)
+
+	var loadOverRate []loadOverFailureRate
+
+	for _, failureRate := range []float64{
+		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9} {
+		s := &stats{}
+		drain = false
+		runSimulation(s, failureRate)
+
+		load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
+		loadOverRate = append(loadOverRate, loadOverFailureRate{
+			rate: failureRate,
+			load: load,
+		})
+	}
+
+	drawLoad(loadOverRate)
+}
+
+type loadOverFailureRate struct {
+	rate float64
+	load float64
 }

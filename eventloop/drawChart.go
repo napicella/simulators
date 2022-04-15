@@ -25,7 +25,7 @@ func itemRange(length int) []opts.LineData {
 	return items
 }
 
-func draw(latencies []float64) {
+func drawLatencies(latencies []float64) {
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: "basic line example"}),
@@ -47,9 +47,54 @@ func draw(latencies []float64) {
 
 	page := components.NewPage()
 	page.AddCharts(line)
-	f, err := os.Create("line.html")
+	f, err := os.Create("latency.html")
 	if err != nil {
 		panic(err)
 	}
 	page.Render(io.MultiWriter(f))
+}
+
+func drawLoad(loadOverRate []loadOverFailureRate) {
+	line := charts.NewLine()
+	line.SetGlobalOptions(
+		charts.WithTitleOpts(opts.Title{Title: "Load over failure rate"}),
+		charts.WithXAxisOpts(opts.XAxis{
+			Name: "Failure Rate",
+			Type: "category",
+		}),
+		charts.WithYAxisOpts(opts.YAxis{
+			Name: "Load",
+			Type: "value",
+		}),
+		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
+		charts.WithTooltipOpts(opts.Tooltip{Show: true, Trigger: "axis"}),
+		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
+	)
+
+	line.SetXAxis(toFailureRateArray(loadOverRate)).
+		AddSeries("Request latency", generateLineItems(toLoadArray(loadOverRate)))
+
+	page := components.NewPage()
+	page.AddCharts(line)
+	f, err := os.Create("failure-rate.html")
+	if err != nil {
+		panic(err)
+	}
+	page.Render(io.MultiWriter(f))
+}
+
+func toFailureRateArray(loadOverRate []loadOverFailureRate) []float64 {
+	var rates []float64
+	for _, c := range loadOverRate {
+		rates = append(rates, c.rate)
+	}
+	return rates
+}
+
+func toLoadArray(loadOverRate []loadOverFailureRate) []float64 {
+	var rates []float64
+	for _, c := range loadOverRate {
+		rates = append(rates, c.load)
+	}
+	return rates
 }
