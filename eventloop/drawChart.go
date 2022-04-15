@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -54,7 +55,7 @@ func drawLatencies(latencies []float64) {
 	page.Render(io.MultiWriter(f))
 }
 
-func drawLoad(loadByStrategy map[retrierFactoryName][]loadOverFailureRate) {
+func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: "Load over failure rate"}),
@@ -71,31 +72,18 @@ func drawLoad(loadByStrategy map[retrierFactoryName][]loadOverFailureRate) {
 		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
 	)
 
-	line.SetXAxis(toFailureRateArray(loadByStrategy[fixedRetry])).
-		AddSeries("Load Fixed", generateLineItems(toLoadArray(loadByStrategy[fixedRetry]))).
-		AddSeries("Load CB", generateLineItems(toLoadArray(loadByStrategy[circuitBreaker])))
+	line.SetXAxis(loadVsFailureRate.failureRate)
+	for strategyName, loadArray := range loadVsFailureRate.loadByRetryStrategy {
+		line = line.AddSeries(
+			fmt.Sprintf("Load %s", strategyName),
+			generateLineItems(loadArray))
+	}
 
 	page := components.NewPage()
 	page.AddCharts(line)
-	f, err := os.Create("failure-rate.html")
+	f, err := os.Create("./build/graphs/failure-rate.html")
 	if err != nil {
 		panic(err)
 	}
 	page.Render(io.MultiWriter(f))
-}
-
-func toFailureRateArray(loadOverRate []loadOverFailureRate) []float64 {
-	var rates []float64
-	for _, c := range loadOverRate {
-		rates = append(rates, c.rate)
-	}
-	return rates
-}
-
-func toLoadArray(loadOverRate []loadOverFailureRate) []float64 {
-	var rates []float64
-	for _, c := range loadOverRate {
-		rates = append(rates, c.load)
-	}
-	return rates
 }

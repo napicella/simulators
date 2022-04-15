@@ -37,7 +37,7 @@ func newCircuitBreakerRetrier() retrier {
 		r:        newFixedRetrier(),
 		failures: 0,
 		calls:    0,
-		maxRate:  100,
+		maxRate:  10,
 	}
 }
 
@@ -108,11 +108,13 @@ func (t *circuitBreakerRetrierFactory) get() retrier {
 			r:        newFixedRetrier(),
 			failures: 0,
 			calls:    0,
-			maxRate:  10,
+			maxRate:  0.5,
 		}
 	} else {
 		// workaround to re-create the fixed retrier used by the circuitBreakerRetrier
 		// every team get is called (which is every time the client creates a new call)
+		// TODO: the retried should have a method called - start or call which should do
+		//   initialization that need to happen before the call is made
 		t.r.r = newFixedRetrier()
 	}
 

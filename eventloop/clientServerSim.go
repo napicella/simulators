@@ -239,32 +239,39 @@ func runSimulation(s *stats, failureRate float64, factoryName retrierFactoryName
 func main() {
 	seed := time.Now().Unix()
 	log.Printf("seed: %d", seed)
-	mathrand.Seed(1649093646)
+	mathrand.Seed(seed)
 
-	loadByRetryStrategy := make(map[retrierFactoryName][]loadOverFailureRate)
+	failureRates := []float64{
+		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
+		0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1}
+
+	loadVsRate := loadVsFailureRateByStrategy{
+		failureRate:         failureRates,
+		loadByRetryStrategy: make(map[retrierFactoryName][]float64),
+	}
 
 	for _, retryStrategyName := range []retrierFactoryName{fixedRetry, circuitBreaker} {
-		var loadOverRate []loadOverFailureRate
+		var loads []float64
 
-		for _, failureRate := range []float64{
-			0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1} {
+		for _, failureRate := range failureRates {
 			s := &stats{}
 			drain = false
 			runSimulation(s, failureRate, retryStrategyName)
 
 			load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
-			loadOverRate = append(loadOverRate, loadOverFailureRate{
-				rate: failureRate,
-				load: load,
-			})
+			loads = append(loads, load)
 		}
-		loadByRetryStrategy[retryStrategyName] = loadOverRate
+		loadVsRate.loadByRetryStrategy[retryStrategyName] = loads
 	}
 
-	drawLoad(loadByRetryStrategy)
+	drawLoad(loadVsRate)
 }
 
-type loadOverFailureRate struct {
-	rate float64
-	load float64
+type loadVsFailureRateByStrategy struct {
+	// array of the failure rates used in the simulation
+	failureRate []float64
+	// the load that server experienced with each retry strategy.
+	// It's a map between retry strategy name and an array of load (one for each failure
+	// rate). This also means that len(loadByRetryStrategy[x]) == len(failureRate)
+	loadByRetryStrategy map[retrierFactoryName][]float64
 }
