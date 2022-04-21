@@ -50,8 +50,11 @@ func (t *client) call(time float64, payload interface{}) []sim.Event {
 	t.stats.uniqueCalls++
 	t.stats.attempts++
 
+	retrier := t.retrierFactory.get()
+	retrier.initCall()
+
 	c := &call{
-		r:              t.retrierFactory.get(),
+		r:              retrier,
 		stats:          t.stats,
 		server:         t.server,
 		currentAttempt: 0,
@@ -232,7 +235,7 @@ func main() {
 	log.Printf("seed: %d", seed)
 	mathrand.Seed(seed)
 
-	failureRates := rangeInterval(0, 1, 0.001)
+	failureRates := rangeInterval(0, 1, 0.05)
 
 	loadVsRate := loadVsFailureRateByStrategy{
 		failureRate:         failureRates,
