@@ -70,6 +70,17 @@ func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
 		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
 		charts.WithTooltipOpts(opts.Tooltip{Show: true, Trigger: "axis"}),
 		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
+		charts.WithToolboxOpts(opts.Toolbox{
+			Show: true,
+			Feature: &opts.ToolBoxFeature{
+				SaveAsImage: &opts.ToolBoxFeatureSaveAsImage{
+					Show:  true,
+					Type:  "png",
+					Name:  "failure-rate",
+					Title: "png",
+				},
+			},
+		}),
 	)
 
 	line.SetXAxis(loadVsFailureRate.failureRate)
