@@ -1,14 +1,12 @@
 package main
 
 import (
-	"container/heap"
 	"log"
 	"math"
 	mathrand "math/rand"
+	"napicella.com/simulators/simulation"
 	"time"
 )
-
-var drain bool
 
 type client struct {
 	stats              *stats
@@ -17,32 +15,38 @@ type client struct {
 	currentAttempt     int
 
 	retrierFactory retrierFactory
+
+	drain bool
 }
 
-func (t *client) genLoad(time float64, payload interface{}) []event {
+func (t *client) genLoad(time float64, payload interface{}) []sim.Event {
+	if t.drain {
+		return nil
+	}
+
 	desiredStdDev := 0.1
 	desiredMean := float64(t.requestsPerSeconds)
 	nextCall := math.Abs(mathrand.NormFloat64()*desiredStdDev + desiredMean)
 
-	if drain {
-		return nil
-	}
-
-	return []event{
+	return []sim.Event{
 		{
-			time:        time + nextCall,
-			callbackFun: t.genLoad,
-			payload:     nil,
+			Time:        time + nextCall,
+			CallbackFun: t.genLoad,
+			Payload:     nil,
 		},
 		{
-			time:        time,
-			callbackFun: t.call,
-			payload:     nil,
+			Time:        time,
+			CallbackFun: t.call,
+			Payload:     nil,
 		},
 	}
 }
 
-func (t *client) call(time float64, payload interface{}) []event {
+func (t *client) stopLoadGen() {
+	t.drain = true
+}
+
+func (t *client) call(time float64, payload interface{}) []sim.Event {
 	t.stats.uniqueCalls++
 	t.stats.attempts++
 
@@ -63,7 +67,7 @@ type call struct {
 	currentAttempt int
 }
 
-func (t *call) callSuccess(time float64, payload interface{}) []event {
+func (t *call) callSuccess(time float64, payload interface{}) []sim.Event {
 	t.r.recordSuccess()
 	t.stats.reqSuccessCount++
 	req := payload.(*request)
@@ -72,7 +76,7 @@ func (t *call) callSuccess(time float64, payload interface{}) []event {
 	return nil
 }
 
-func (t *call) callFailed(time float64, payload interface{}) []event {
+func (t *call) callFailed(time float64, payload interface{}) []sim.Event {
 	t.r.recordFailure()
 
 	if t.r.shouldRetry() {
@@ -101,16 +105,16 @@ type request struct {
 	client *call
 }
 
-func (t *server) sendRequest(t_ float64, payload interface{}) []event {
+func (t *server) sendRequest(t_ float64, payload interface{}) []sim.Event {
 	c := payload.(*call)
 
 	t.requests = append(t.requests, request{time: t_, client: c})
 	if !t.isBusy {
-		return []event{
+		return []sim.Event{
 			{
-				time:        t_,
-				callbackFun: t.processRequest,
-				payload:     nil,
+				Time:        t_,
+				CallbackFun: t.processRequest,
+				Payload:     nil,
 			},
 		}
 	}
@@ -118,7 +122,7 @@ func (t *server) sendRequest(t_ float64, payload interface{}) []event {
 }
 
 // server can process one request at the time
-func (t *server) processRequest(t_ float64, payload interface{}) []event {
+func (t *server) processRequest(t_ float64, payload interface{}) []sim.Event {
 	if len(t.requests) == 0 {
 		t.isBusy = false
 		return nil
@@ -134,40 +138,40 @@ func (t *server) processRequest(t_ float64, payload interface{}) []event {
 
 	// failure rate
 	if mathrand.Float64() < t.failureRate {
-		return []event{
+		return []sim.Event{
 			{
-				time:        requestEndTime,
-				callbackFun: req.client.callFailed,
-				payload:     &req,
+				Time:        requestEndTime,
+				CallbackFun: req.client.callFailed,
+				Payload:     &req,
 			},
 			{
-				time:        requestEndTime,
-				callbackFun: t.processRequest,
-				payload:     nil,
+				Time:        requestEndTime,
+				CallbackFun: t.processRequest,
+				Payload:     nil,
 			},
 		}
 	}
 
-	return []event{
+	return []sim.Event{
 		{
-			time:        requestEndTime,
-			callbackFun: req.client.callSuccess,
-			payload:     &req,
+			Time:        requestEndTime,
+			CallbackFun: req.client.callSuccess,
+			Payload:     &req,
 		},
 		{
-			time:        requestEndTime,
-			callbackFun: t.processRequest,
-			payload:     nil,
+			Time:        requestEndTime,
+			CallbackFun: t.processRequest,
+			Payload:     nil,
 		},
 	}
 }
 
-func (t *server) startServer(t_ float64, payload interface{}) []event {
-	return []event{
+func (t *server) startServer(t_ float64, payload interface{}) []sim.Event {
+	return []sim.Event{
 		{
-			time:        t_,
-			callbackFun: t.processRequest,
-			payload:     nil,
+			Time:        t_,
+			CallbackFun: t.processRequest,
+			Payload:     nil,
 		},
 	}
 }
@@ -205,35 +209,22 @@ func runSimulation(s *stats, failureRate float64, factoryName retrierFactoryName
 	t := 0.0
 	maxTime := 5000.0
 
-	h := &minheap{
+	q := &sim.EventsQueue{
 		{
-			time:        t,
-			callbackFun: server.startServer,
-			payload:     nil,
+			Time:        t,
+			CallbackFun: server.startServer,
+			Payload:     nil,
 		},
 		{
-			time:        t,
-			callbackFun: c.genLoad,
-			payload:     nil,
+			Time:        t,
+			CallbackFun: c.genLoad,
+			Payload:     nil,
 		},
 	}
-	heap.Init(h)
 
-	for h.Len() > 0 {
-		item := heap.Pop(h)
-		e := item.(*event)
-		t = e.time
-
-		events := e.callbackFun(t, e.payload)
-		for _, ev := range events {
-			evCopy := ev
-			heap.Push(h, &evCopy)
-		}
-
-		if t > maxTime {
-			drain = true
-		}
-	}
+	sim.Run(maxTime, q, func() {
+		c.stopLoadGen()
+	})
 }
 
 func main() {
@@ -241,9 +232,7 @@ func main() {
 	log.Printf("seed: %d", seed)
 	mathrand.Seed(seed)
 
-	failureRates := []float64{
-		0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
-		0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 1}
+	failureRates := rangeInterval(0, 1, 0.001)
 
 	loadVsRate := loadVsFailureRateByStrategy{
 		failureRate:         failureRates,
@@ -255,7 +244,6 @@ func main() {
 
 		for _, failureRate := range failureRates {
 			s := &stats{}
-			drain = false
 			runSimulation(s, failureRate, retryStrategyName)
 
 			load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
@@ -274,4 +262,12 @@ type loadVsFailureRateByStrategy struct {
 	// It's a map between retry strategy name and an array of load (one for each failure
 	// rate). This also means that len(loadByRetryStrategy[x]) == len(failureRate)
 	loadByRetryStrategy map[retrierFactoryName][]float64
+}
+
+func rangeInterval(start, end, increment float64) []float64 {
+	var res []float64
+	for i := start; i <= end; i = i + increment {
+		res = append(res, math.Round(i*100)/100)
+	}
+	return res
 }

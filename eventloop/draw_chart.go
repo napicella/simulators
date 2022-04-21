@@ -80,6 +80,7 @@ func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
 	}
 
 	page := components.NewPage()
+	page.PageTitle = "Retriers"
 	page.AddCharts(line)
 	f, err := os.Create("./build/graphs/failure-rate.html")
 	if err != nil {
