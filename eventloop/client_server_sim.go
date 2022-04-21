@@ -232,7 +232,7 @@ func main() {
 	// using  a fixed seed to make the simulation deterministic across runs
 	var seed int64 = 1650543745
 	mathrand.Seed(seed)
-	failureRates := rangeInterval(0, 1, 0.05)
+	failureRates := rangeInterval(0, 1, 0.001)
 
 	loadVsRate := loadVsFailureRateByStrategy{
 		failureRate:         failureRates,
@@ -240,7 +240,7 @@ func main() {
 	}
 
 	for _, retryStrategyName := range []retrierFactoryName{
-		fixedRetry, circuitBreaker, tokenBucket} {
+		fixedRetry, circuitBreaker, tokenBucket, tokenBucketFixedRetry} {
 
 		var loads []float64
 
@@ -264,12 +264,4 @@ type loadVsFailureRateByStrategy struct {
 	// It's a map between retry strategy name and an array of load (one for each failure
 	// rate). This also means that len(loadByRetryStrategy[x]) == len(failureRate)
 	loadByRetryStrategy map[retrierFactoryName][]float64
-}
-
-func rangeInterval(start, end, increment float64) []float64 {
-	var res []float64
-	for i := start; math.Round(i*100)/100 <= end; i = i + increment {
-		res = append(res, math.Round(i*100)/100)
-	}
-	return res
 }

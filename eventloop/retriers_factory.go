@@ -5,15 +5,16 @@ import (
 )
 
 const (
-	fixedRetry     retrierFactoryName = iota
-	circuitBreaker                    = iota
+	fixedRetry retrierFactoryName = iota
+	circuitBreaker
 	tokenBucket
+	tokenBucketFixedRetry
 )
 
 type retrierFactoryName int
 
 func (d retrierFactoryName) String() string {
-	return [...]string{"fixed", "circuit-breaker", "token-bucket"}[d]
+	return [...]string{"fixed", "circuit-breaker", "token-bucket", "token-bucket-fixed"}[d]
 }
 
 func getFactory(name retrierFactoryName) retrierFactory {
@@ -24,6 +25,8 @@ func getFactory(name retrierFactoryName) retrierFactory {
 		return &circuitBreakerRetrierFactory{}
 	case tokenBucket:
 		return &tokenBucketFactory{}
+	case tokenBucketFixedRetry:
+		return &tokenBucketFixedRetrierFactory{}
 	default:
 		panic(fmt.Sprintf("invalid retrier name %s", name))
 	}
@@ -64,6 +67,23 @@ func (t *tokenBucketFactory) get() retrier {
 		t.r = &tokenBucketRetrier{
 			maxBucketSize:  10,
 			numberOfTokens: 10,
+		}
+	}
+	return t.r
+}
+
+type tokenBucketFixedRetrierFactory struct {
+	r *tokenBucketFixedRetrier
+}
+
+func (t *tokenBucketFixedRetrierFactory) get() retrier {
+	if t.r == nil {
+		t.r = &tokenBucketFixedRetrier{
+			tokenBucketRetrier: tokenBucketRetrier{
+				maxBucketSize:  10,
+				numberOfTokens: 10,
+			},
+			fixedRetrier: newFixedRetrier(),
 		}
 	}
 	return t.r
