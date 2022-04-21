@@ -18,6 +18,7 @@ func draw(
 	loadChart := drawLoad(loadVsFailureRate)
 
 	page := components.NewPage()
+	page.PageTitle = "Retriers"
 	page.AddCharts(loadChart)
 	page.AddCharts(latenciesChart)
 
@@ -55,14 +56,18 @@ func drawLatencies(latencies requestLatenciesVsFailureRateByStrategy) *charts.Li
 				},
 			},
 		}),
+		charts.WithLegendOpts(opts.Legend{Show: true, Right: "150", Orient: "vertical"}),
 	)
 
 	line.SetXAxis(latencies.failureRate)
 	for strategyName, latencyArray := range latencies.requestLatencyByStrategy {
 		logLatencies := logE(latencyArray)
 		line = line.AddSeries(
-			fmt.Sprintf("Latency %s", strategyName),
-			generateLineItems(logLatencies))
+			fmt.Sprintf("%s - Latency", strategyName),
+			generateLineItems(logLatencies),
+			charts.WithLineStyleOpts(opts.LineStyle{Color: getLineColorForStrategy(strategyName)}),
+			charts.WithItemStyleOpts(opts.ItemStyle{Color: getLineColorForStrategy(strategyName)}),
+		)
 	}
 
 	return line
@@ -95,13 +100,17 @@ func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) *charts.Line {
 				},
 			},
 		}),
+		charts.WithLegendOpts(opts.Legend{Show: true, Right: "150", Orient: "vertical"}),
 	)
 
 	line.SetXAxis(loadVsFailureRate.failureRate)
 	for strategyName, loadArray := range loadVsFailureRate.loadByRetryStrategy {
 		line = line.AddSeries(
-			fmt.Sprintf("Load %s", strategyName),
-			generateLineItems(loadArray))
+			fmt.Sprintf("%s - Load ", strategyName),
+			generateLineItems(loadArray),
+			charts.WithLineStyleOpts(opts.LineStyle{Color: getLineColorForStrategy(strategyName)}),
+			charts.WithItemStyleOpts(opts.ItemStyle{Color: getLineColorForStrategy(strategyName)}),
+		)
 	}
 
 	return line
@@ -118,7 +127,24 @@ func generateLineItems(data []float64) []opts.LineData {
 func logE(input []float64) []float64 {
 	var out []float64
 	for _, f := range input {
+		// adding a bias of 1.0 to avoid getting negative numbers when the input is less
+		// than 1
 		out = append(out, math.Log(f+1.0))
 	}
 	return out
+}
+
+func getLineColorForStrategy(retryStrategy retrierFactoryName) string {
+	switch retryStrategy {
+	case fixedRetry:
+		return "grey"
+	case circuitBreaker:
+		return "blue"
+	case tokenBucket:
+		return "red"
+	case tokenBucketFixedRetry:
+		return "green"
+	default:
+		panic(fmt.Sprintf("invalid retryStrategy name %s", retryStrategy))
+	}
 }
