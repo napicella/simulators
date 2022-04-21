@@ -1,5 +1,5 @@
 # Simulators
-The simulator repository contains resources to build simple simulations with golang. The 
+The simulators repository contains resources to build simple simulations with golang. The 
 idea for this repository was inspired by the [mbrooker/simulator_example](https://github.com/mbrooker/simulator_example)
 
 The repo consist of:  
