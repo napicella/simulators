@@ -1,7 +1,5 @@
 package main
 
-import "fmt"
-
 type retrier interface {
 	initCall()
 	recordSuccess()
@@ -37,15 +35,6 @@ func (t *fixedRetrier) shouldRetry() bool {
 	return t.currentAttempt <= t.maxAttempts
 }
 
-func newCircuitBreakerRetrier() retrier {
-	return &circuitBreakerRetrier{
-		r:        newFixedRetrier(),
-		failures: 0,
-		calls:    0,
-		maxRate:  10,
-	}
-}
-
 type circuitBreakerRetrier struct {
 	r        retrier
 	failures float64
@@ -75,50 +64,37 @@ func (t *circuitBreakerRetrier) shouldRetry() bool {
 	return false
 }
 
-type retrierFactoryName int
-
-func (d retrierFactoryName) String() string {
-	return [...]string{"fixed", "circuit-breaker"}[d]
+type tokenBucketRetrier struct {
+	maxBucketSize  int
+	numberOfTokens int
 }
 
-const (
-	fixedRetry     retrierFactoryName = iota
-	circuitBreaker                    = iota
-)
+func (t *tokenBucketRetrier) initCall() {
+	// do nothing
+}
 
-func getFactory(name retrierFactoryName) retrierFactory {
-	switch name {
-	case fixedRetry:
-		return &fixedRetrierFactory{}
-	case circuitBreaker:
-		return &circuitBreakerRetrierFactory{}
-	default:
-		panic(fmt.Sprintf("invalid retrier name %s", name))
+func (t *tokenBucketRetrier) recordSuccess() {
+	t.numberOfTokens = min(t.numberOfTokens+1, t.maxBucketSize)
+}
+
+func (t *tokenBucketRetrier) recordFailure() {
+	t.numberOfTokens = max(t.numberOfTokens-1, 0)
+}
+
+func (t *tokenBucketRetrier) shouldRetry() bool {
+	return t.numberOfTokens > 0
+}
+
+func max(x, y int) int {
+	if x >= y {
+		return x
 	}
+	return y
 }
 
-type retrierFactory interface {
-	get() retrier
-}
-
-type fixedRetrierFactory struct{}
-
-func (t *fixedRetrierFactory) get() retrier {
-	return newFixedRetrier()
-}
-
-type circuitBreakerRetrierFactory struct {
-	r *circuitBreakerRetrier
-}
-
-func (t *circuitBreakerRetrierFactory) get() retrier {
-	if t.r == nil {
-		t.r = &circuitBreakerRetrier{
-			r:        newFixedRetrier(),
-			failures: 0,
-			calls:    0,
-			maxRate:  0.5,
-		}
+func min(x, y int) int {
+	if x <= y {
+		return x
 	}
-	return t.r
+	return y
 }

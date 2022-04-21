@@ -1,11 +1,9 @@
 package main
 
 import (
-	"log"
 	"math"
 	mathrand "math/rand"
 	"napicella.com/simulators/simulation"
-	"time"
 )
 
 type client struct {
@@ -231,10 +229,9 @@ func runSimulation(s *stats, failureRate float64, factoryName retrierFactoryName
 }
 
 func main() {
-	seed := time.Now().Unix()
-	log.Printf("seed: %d", seed)
+	// using  a fixed seed to make the simulation deterministic across runs
+	var seed int64 = 1650543745
 	mathrand.Seed(seed)
-
 	failureRates := rangeInterval(0, 1, 0.05)
 
 	loadVsRate := loadVsFailureRateByStrategy{
@@ -242,7 +239,9 @@ func main() {
 		loadByRetryStrategy: make(map[retrierFactoryName][]float64),
 	}
 
-	for _, retryStrategyName := range []retrierFactoryName{fixedRetry, circuitBreaker} {
+	for _, retryStrategyName := range []retrierFactoryName{
+		fixedRetry, circuitBreaker, tokenBucket} {
+
 		var loads []float64
 
 		for _, failureRate := range failureRates {
@@ -269,7 +268,7 @@ type loadVsFailureRateByStrategy struct {
 
 func rangeInterval(start, end, increment float64) []float64 {
 	var res []float64
-	for i := start; i <= end; i = i + increment {
+	for i := start; math.Round(i*100)/100 <= end; i = i + increment {
 		res = append(res, math.Round(i*100)/100)
 	}
 	return res
