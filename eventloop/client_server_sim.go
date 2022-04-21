@@ -1,6 +1,7 @@
 package main
 
 import (
+	mathstats "github.com/montanaflynn/stats"
 	"math"
 	mathrand "math/rand"
 	"napicella.com/simulators/simulation"
@@ -185,12 +186,23 @@ type stats struct {
 	reqFailedCount  int
 }
 
-func (t *stats) try() {
-	t.attempts = t.attempts + 1
-}
-
 func (t *stats) requestLatency(latency float64) {
 	t.reqLatencies = append(t.reqLatencies, latency)
+}
+
+func (t *stats) getLoad() float64 {
+	return (float64(t.attempts) / float64(t.uniqueCalls)) * 100
+}
+
+func (t *stats) getp90Latency() float64 {
+	if len(t.reqLatencies) == 0 {
+		return 0
+	}
+	p90, e := mathstats.Percentile(t.reqLatencies, 90.0)
+	if e != nil {
+		panic(e)
+	}
+	return p90
 }
 
 func runSimulation(s *stats, failureRate float64, factoryName retrierFactoryName) {
@@ -232,29 +244,35 @@ func main() {
 	// using  a fixed seed to make the simulation deterministic across runs
 	var seed int64 = 1650543745
 	mathrand.Seed(seed)
-	failureRates := rangeInterval(0, 1, 0.001)
+	failureRates := rangeInterval(0, 1, 0.01)
 
 	loadVsRate := loadVsFailureRateByStrategy{
 		failureRate:         failureRates,
 		loadByRetryStrategy: make(map[retrierFactoryName][]float64),
+	}
+	latencyVsRate := requestLatenciesVsFailureRateByStrategy{
+		failureRate:              failureRates,
+		requestLatencyByStrategy: make(map[retrierFactoryName][]float64),
 	}
 
 	for _, retryStrategyName := range []retrierFactoryName{
 		fixedRetry, circuitBreaker, tokenBucket, tokenBucketFixedRetry} {
 
 		var loads []float64
-
+		var p90Latencies []float64
 		for _, failureRate := range failureRates {
+
 			s := &stats{}
 			runSimulation(s, failureRate, retryStrategyName)
 
-			load := (float64(s.attempts) / float64(s.uniqueCalls)) * 100
-			loads = append(loads, load)
+			loads = append(loads, s.getLoad())
+			p90Latencies = append(p90Latencies, s.getp90Latency())
 		}
 		loadVsRate.loadByRetryStrategy[retryStrategyName] = loads
+		latencyVsRate.requestLatencyByStrategy[retryStrategyName] = p90Latencies
 	}
 
-	drawLoad(loadVsRate)
+	draw(latencyVsRate, loadVsRate)
 }
 
 type loadVsFailureRateByStrategy struct {
@@ -264,4 +282,11 @@ type loadVsFailureRateByStrategy struct {
 	// It's a map between retry strategy name and an array of load (one for each failure
 	// rate). This also means that len(loadByRetryStrategy[x]) == len(failureRate)
 	loadByRetryStrategy map[retrierFactoryName][]float64
+}
+
+type requestLatenciesVsFailureRateByStrategy struct {
+	// array of the failure rates used in the simulation
+	failureRate []float64
+	// p90 latency requests experienced with each strategy
+	requestLatencyByStrategy map[retrierFactoryName][]float64
 }

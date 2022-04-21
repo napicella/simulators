@@ -2,60 +2,73 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"os"
-
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/components"
 	"github.com/go-echarts/go-echarts/v2/opts"
+	"io"
+	"math"
+	"os"
 )
 
-func generateLineItems(data []float64) []opts.LineData {
-	items := make([]opts.LineData, 0)
-	for i := 0; i < len(data); i++ {
-		items = append(items, opts.LineData{Value: data[i]})
-	}
-	return items
-}
+func draw(
+	latencies requestLatenciesVsFailureRateByStrategy,
+	loadVsFailureRate loadVsFailureRateByStrategy) {
 
-func itemRange(length int) []opts.LineData {
-	items := make([]opts.LineData, 0)
-	for i := 0; i < length; i++ {
-		items = append(items, opts.LineData{Value: i})
-	}
-	return items
-}
-
-func drawLatencies(latencies []float64) {
-	line := charts.NewLine()
-	line.SetGlobalOptions(
-		charts.WithTitleOpts(opts.Title{Title: "basic line example"}),
-		charts.WithXAxisOpts(opts.XAxis{
-			Name: "Time",
-			Type: "category",
-		}),
-		charts.WithYAxisOpts(opts.YAxis{
-			Name: "Request latency",
-			Type: "value",
-		}),
-		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
-		charts.WithTooltipOpts(opts.Tooltip{Show: true, Trigger: "axis"}),
-		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
-	)
-
-	line.SetXAxis(itemRange(len(latencies))).
-		AddSeries("Request latency", generateLineItems(latencies))
+	latenciesChart := drawLatencies(latencies)
+	loadChart := drawLoad(loadVsFailureRate)
 
 	page := components.NewPage()
-	page.AddCharts(line)
-	f, err := os.Create("latency.html")
+	page.AddCharts(loadChart)
+	page.AddCharts(latenciesChart)
+
+	f, err := os.Create("./build/graphs/stats.html")
 	if err != nil {
 		panic(err)
 	}
 	page.Render(io.MultiWriter(f))
 }
 
-func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
+func drawLatencies(latencies requestLatenciesVsFailureRateByStrategy) *charts.Line {
+	line := charts.NewLine()
+	line.SetGlobalOptions(
+		charts.WithTitleOpts(opts.Title{Title: "Latency over failure rate"}),
+		charts.WithXAxisOpts(opts.XAxis{
+			Name: "Failure Rate",
+			Type: "category",
+		}),
+		charts.WithYAxisOpts(opts.YAxis{
+			Name: "Request latency (log)",
+			Type: "value",
+			Max:  10,
+		}),
+		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
+		charts.WithTooltipOpts(opts.Tooltip{Show: true, Trigger: "axis"}),
+		charts.WithLegendOpts(opts.Legend{Right: "80%"}),
+		charts.WithToolboxOpts(opts.Toolbox{
+			Show: true,
+			Feature: &opts.ToolBoxFeature{
+				SaveAsImage: &opts.ToolBoxFeatureSaveAsImage{
+					Show:  true,
+					Type:  "png",
+					Name:  "latency",
+					Title: "png",
+				},
+			},
+		}),
+	)
+
+	line.SetXAxis(latencies.failureRate)
+	for strategyName, latencyArray := range latencies.requestLatencyByStrategy {
+		logLatencies := logE(latencyArray)
+		line = line.AddSeries(
+			fmt.Sprintf("Latency %s", strategyName),
+			generateLineItems(logLatencies))
+	}
+
+	return line
+}
+
+func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) *charts.Line {
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: "Load over failure rate"}),
@@ -66,6 +79,7 @@ func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
 		charts.WithYAxisOpts(opts.YAxis{
 			Name: "Load",
 			Type: "value",
+			Min:  100,
 		}),
 		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
 		charts.WithTooltipOpts(opts.Tooltip{Show: true, Trigger: "axis"}),
@@ -90,12 +104,21 @@ func drawLoad(loadVsFailureRate loadVsFailureRateByStrategy) {
 			generateLineItems(loadArray))
 	}
 
-	page := components.NewPage()
-	page.PageTitle = "Retriers"
-	page.AddCharts(line)
-	f, err := os.Create("./build/graphs/failure-rate.html")
-	if err != nil {
-		panic(err)
+	return line
+}
+
+func generateLineItems(data []float64) []opts.LineData {
+	items := make([]opts.LineData, 0)
+	for i := 0; i < len(data); i++ {
+		items = append(items, opts.LineData{Value: data[i]})
 	}
-	page.Render(io.MultiWriter(f))
+	return items
+}
+
+func logE(input []float64) []float64 {
+	var out []float64
+	for _, f := range input {
+		out = append(out, math.Log(f+1.0))
+	}
+	return out
 }
