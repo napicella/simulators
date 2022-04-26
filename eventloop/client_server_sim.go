@@ -1,3 +1,17 @@
+// Package main implements an example of simulation that uses the small framework defined
+// in napicella.com/simulators/simulation.
+//
+// The code simulates a client to server communication with the goal of verifying the
+// behaviour of different retry strategies on metrics like server load and request
+// latency. The simulation assumes one client and one server. The client sends requests
+// periodically whether or not the previous request was full filled by the server.
+// The server receives the requests and pushes them to an infinite queue, picking them up
+// one at the time. Each request takes some random processing time, modelled as a random
+// variable. Some of the requests might fail (based on the server failure rate, modelled
+// with another random variable). The client retries the failed request using different
+// retry strategies.
+// The simulation gathers statistics on server load and request latency for each retry
+// strategy and for each failure rate from 0 (no failures) to 1 (all requests fail).
 package main
 
 import (
